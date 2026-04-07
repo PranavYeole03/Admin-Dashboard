@@ -16,7 +16,7 @@ import Terms from "./pages/Terms";
 import Privacy from "./pages/Privacy";
 import DeliveryBoyDetails from "./pages/DeliveryBoyDetails";
 
-export const serverURL = "http://localhost:8000"
+export const serverURL = "https://admin-dashboard-n6b6.onrender.com"
 function Layout() {
 
   const [openSidebar, setOpenSidebar] = useState(false)
