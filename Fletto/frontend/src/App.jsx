@@ -1,111 +1,84 @@
-import React from "react";
-import { Navigate, Route, Routes } from "react-router-dom";
-import SignUp from "./pages/SignUp";
-import SignIn from "./pages/SignIn";
-import ForgotPassword from "./pages/ForgotPassword";
-import useGetCurrentUser from "./hooks/useGetCurrentUser";
-import { useDispatch, useSelector } from "react-redux";
-import Home from "./pages/Home";
-import useGetCity from "./hooks/useGetCity";
-import useGetMyShop from "./hooks/useGetMyShop";
-import CreateEditShop from "./pages/CreateEditShop";
-import AddItem from "./pages/AddItem";
-import EditItem from "./pages/EditItem";
-import useGetShopByCity from "./hooks/useGetShopByCity";
-import useGetItemByCity from "./hooks/useGetItemByCity";
-import CartPages from "./pages/CartPages";
-import CheckOut from "./pages/CheckOut";
-import OrderPlaced from "./pages/OrderPlaced";
-import MyOrders from "./pages/MyOrders";
-import useGetMyOrders from "./hooks/useGetMyOrders";
-import useUpdateLocation from "./hooks/useUpdateLocation";
-import TrackOrderPage from "./pages/TrackOrderPage";
-import ShopItems from "./pages/ShopItems";
-import { useEffect } from "react";
-import { io } from "socket.io-client";
-import { setSocket } from "./redux/userSlice";
+import { BrowserRouter, Routes, Route, Navigate, Outlet } from "react-router-dom"; import { useState } from "react";
 
-export const serverUrl = "http://localhost:8000";
+import Sidebar from "./components/Sidebar";
+import Navbar from "./components/NavBar";
 
-const App = () => {
-  const { userData } = useSelector((state) => state.user);
-  const dispatch = useDispatch();
-  useGetCurrentUser();
-  useGetCity();
-  useGetMyShop();
-  useGetShopByCity();
-  useGetItemByCity();
-  useGetMyOrders();
-  useUpdateLocation();
+import Dashboard from "./pages/Dashboard";
+import Users from "./pages/Users";
+import Owners from "./pages/Owners";
+import OwnerDashboard from "./pages/OwnerDashboard";
+import DeliveryBoys from "./pages/DeliveryBoys";
+import Orders from "./pages/Orders";
+import UserDetails from "./pages/UserDetails";
+import AdminAuth from "./pages/AdminAuth";
+import Settings from "./pages/Settings";
+import Terms from "./pages/Terms";
+import Privacy from "./pages/Privacy";
+import DeliveryBoyDetails from "./pages/DeliveryBoyDetails";
 
-  useEffect(() => {
-    const socketInstance = io(serverUrl, { withCredentials: true });
-    dispatch(setSocket(socketInstance));
-    socketInstance.on("connect", (socket) => {
-      if (userData) {
-        socketInstance.emit("identity", { userId: userData._id });
-      }
-    });
-    return ()=>{
-      socketInstance.disconnect()
-    }
-  }, [userData?._id]);
+export const serverURL = "http://localhost:8000"
+function Layout() {
+
+  const [openSidebar, setOpenSidebar] = useState(false)
+
   return (
-    <Routes>
-      <Route
-        path="/signup"
-        element={!userData ? <SignUp /> : <Navigate to={"/"} />}
+
+    <div className="flex">
+
+      <Sidebar
+        openSidebar={openSidebar}
+        setOpenSidebar={setOpenSidebar}
       />
-      <Route
-        path="/signin"
-        element={!userData ? <SignIn /> : <Navigate to={"/"} />}
-      />
-      <Route
-        path="/forgot-password"
-        element={!userData ? <ForgotPassword /> : <Navigate to={"/"} />}
-      />
-      <Route
-        path="/"
-        element={userData ? <Home /> : <Navigate to={"/signin"} />}
-      />
-      <Route
-        path="/create-edit-Shop"
-        element={userData ? <CreateEditShop /> : <Navigate to={"/signin"} />}
-      />
-      <Route
-        path="/add-items"
-        element={userData ? <AddItem /> : <Navigate to={"/signin"} />}
-      />
-      <Route
-        path="/edit-items/:itemId"
-        element={userData ? <EditItem /> : <Navigate to={"/signin"} />}
-      />
-      <Route
-        path="/cart"
-        element={userData ? <CartPages /> : <Navigate to={"/signin"} />}
-      />
-      <Route
-        path="/checkOut"
-        element={userData ? <CheckOut /> : <Navigate to={"/signin"} />}
-      />
-      <Route
-        path="/order-place"
-        element={userData ? <OrderPlaced /> : <Navigate to={"/signin"} />}
-      />
-      <Route
-        path="/my-order"
-        element={userData ? <MyOrders /> : <Navigate to={"/signin"} />}
-      />
-      <Route
-        path="/track-order/:orderId"
-        element={userData ? <TrackOrderPage /> : <Navigate to={"/signin"} />}
-      />
-      <Route
-        path="/shop-items/:shopId"
-        element={userData ? <ShopItems /> : <Navigate to={"/signin"} />}
-      />
-    </Routes>
+
+      <div className="flex-1 md:ml-64">
+
+        <Navbar setOpenSidebar={setOpenSidebar} />
+
+        <Outlet />
+
+      </div>
+
+    </div>
+
+  )
+
+}
+
+function App() {
+
+  return (
+
+    <BrowserRouter>
+
+      <Routes>
+
+        <Route path="/admin-auth" element={<AdminAuth />} />
+        <Route path="/dashboard" element={<Layout />}>
+
+          <Route index element={<Dashboard />} />
+
+          <Route path="users" element={<Users />} />
+          <Route path="users/:id" element={<UserDetails />} />
+
+          <Route path="owners" element={<Owners />} />
+          <Route path="owner/:id" element={<OwnerDashboard />} />
+
+          <Route path="delivery-boys" element={<DeliveryBoys />} />
+          <Route path="delivery-boys/:id" element={<DeliveryBoyDetails />} />
+          <Route path="orders" element={<Orders />} />
+
+          {/* SETTINGS */}
+          <Route path="settings" element={<Settings />} />
+        </Route>
+        <Route path="/terms" element={<Terms />} />
+        <Route path="/privacy" element={<Privacy />} />
+        <Route path="*" element={<Navigate to="/admin-auth" />} />
+      </Routes>
+
+    </BrowserRouter>
+
   );
-};
+
+}
 
 export default App;

@@ -2,11 +2,11 @@ import Shop from "../models/shop.model.js";
 import Order from "../models/order.model.js";
 import User from "../models/user.model.js";
 import DeliveryAssignment from "../models/deliveryAssignment.model.js";
-import { model } from "mongoose";
 import { sendDeliveryOtpMail } from "../utils/mail.js";
 import Razorpay from "razorpay";
 import dotenv from "dotenv";
 dotenv.config();
+
 
 let instance = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID,
@@ -16,7 +16,10 @@ let instance = new Razorpay({
 export const placeOrder = async (req, res) => {
   try {
     const { cartItems, paymentMethod, deliveryAddress, totalAmount } = req.body;
-    if (cartItems.length == 0 || !cartItems) {
+    if (!["cod", "online"].includes(paymentMethod)) {
+      return res.status(400).json({ message: "Invalid payment method" });
+    }
+    if (!cartItems || cartItems.length === 0) {
       return res.status(400).json({ message: "Cart is empty" });
     }
     if (
@@ -56,6 +59,7 @@ export const placeOrder = async (req, res) => {
             name: i.name,
             price: i.price,
             quantity: i.quantity,
+            foodType: i.foodType,
           })),
         };
       }),
@@ -89,6 +93,7 @@ export const placeOrder = async (req, res) => {
       deliveryAddress,
       totalAmount,
       shopOrders,
+      payment: paymentMethod === "cod"
     });
 
     await newOrder.populate(
@@ -185,7 +190,7 @@ export const getMyOrder = async (req, res) => {
         .populate("shopOrders.owner", "name email mobile")
         .populate("shopOrders.shopOrderItems.item", "name image price");
 
-      return res.status(201).json(orders);
+      return res.status(200).json(orders);
     } else if (user.role == "owner") {
       const orders = await Order.find({ "shopOrders.owner": req.userId })
         .sort({ createdAt: -1 })
@@ -497,112 +502,245 @@ export const getOrderById = async (req, res) => {
   }
 };
 
+// export const sendOtpByDeliveryBoy = async (req, res) => {
+//   try {
+//     const { orderId, shopOrderId } = req.body;
+
+//     if (!orderId || !shopOrderId) {
+//       return res.status(400).json({
+//         message: "orderId and shopOrderId are required",
+//       });
+//     }
+
+//     const order = await Order.findById(orderId).populate(
+//       "user",
+//       "email fullName",
+//     );
+
+//     if (!order) {
+//       return res.status(400).json({ message: "Invalid orderId" });
+//     }
+
+//     const shopOrder = order.shopOrders.find(
+//       (so) => so._id.toString() === shopOrderId,
+//     );
+
+//     if (!shopOrder) {
+//       return res.status(400).json({ message: "Invalid shopOrderId" });
+//     }
+
+//     if (!order.user?.email) {
+//       return res.status(400).json({
+//         message: "User email not found",
+//       });
+//     }
+
+//     const otp = Math.floor(1000 + Math.random() * 9000).toString();
+//     shopOrder.deliveryOtp = otp;
+//     shopOrder.otpExpires = Date.now() + 5 * 60 * 1000;
+
+//     await order.save();
+//     await sendDeliveryOtpMail(order.user, otp);
+
+//     return res.status(200).json({
+//       message: `OTP sent successfully to ${order.user.fullName}`,
+//     });
+//   } catch (error) {
+//     console.error("SEND OTP ERROR:", error);
+//     return res.status(500).json({
+//       message: "Failed to send delivery OTP",
+//     });
+//   }
+// };
+
 export const sendOtpByDeliveryBoy = async (req, res) => {
   try {
     const { orderId, shopOrderId } = req.body;
 
     if (!orderId || !shopOrderId) {
-      return res.status(400).json({
-        message: "orderId and shopOrderId are required",
-      });
+      return res
+        .status(400)
+        .json({ message: "orderId and shopOrderId required" });
     }
 
     const order = await Order.findById(orderId).populate(
       "user",
-      "email fullName",
+      "email socketId",
     );
 
     if (!order) {
-      return res.status(400).json({ message: "Invalid orderId" });
+      return res.status(404).json({ message: "Order not found" });
     }
 
-    const shopOrder = order.shopOrders.find(
-      (so) => so._id.toString() === shopOrderId,
-    );
-
+    const shopOrder = order.shopOrders.id(shopOrderId);
     if (!shopOrder) {
-      return res.status(400).json({ message: "Invalid shopOrderId" });
+      return res.status(404).json({ message: "Shop order not found" });
     }
 
-    if (!order.user?.email) {
-      return res.status(400).json({
-        message: "User email not found",
-      });
-    }
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
 
-    const otp = Math.floor(1000 + Math.random() * 9000).toString();
     shopOrder.deliveryOtp = otp;
-    shopOrder.otpExpires = Date.now() + 5 * 60 * 1000;
+    shopOrder.otpExpires = new Date(Date.now() + 5 * 60 * 1000);
 
     await order.save();
-    await sendDeliveryOtpMail(order.user, otp);
+
+    // 📧 email (safe)
+    try {
+      await sendDeliveryOtpMail(order.user, otp);
+    } catch (e) {
+      console.error("OTP email failed:", e);
+    }
+
+    // 🔔 socket (optional)
+    const io = req.app.get("io");
+    if (io && order.user?.socketId) {
+      io.to(order.user.socketId).emit("delivery-otp", { otp });
+    }
 
     return res.status(200).json({
-      message: `OTP sent successfully to ${order.user.fullName}`,
+      message: "Delivery OTP sent successfully",
     });
   } catch (error) {
-    console.error("SEND OTP ERROR:", error);
+    console.error("Send delivery OTP error:", error);
     return res.status(500).json({
       message: "Failed to send delivery OTP",
     });
   }
 };
 
+// export const verifyOTP = async (req, res) => {
+//   try {
+//     const { orderId, shopOrderId, otp } = req.body;
+//     const order = await Order.findById(orderId).populate("user");
+//     const shopOrder = order.shopOrders.id(shopOrderId);
+//     if (!order || !shopOrder) {
+//       return res.status(400).json({ message: "Enter valid order/shopOrderid" });
+//     }
+//     if (
+//       shopOrder.deliveryOtp !== otp ||
+//       !shopOrder.otpExpires ||
+//       shopOrder.otpExpires < Date.now()
+//     ) {
+//       return res.status(400).json({ message: "Invalid/Expire OTP" });
+//     }
+//     shopOrder.status = "delivered";
+//     shopOrder.deliveredAt = Date.now();
+//     await order.save();
+
+//     // 🔔 REAL-TIME UPDATE TO OWNER & USER
+//     const io = req.app.get("io");
+
+//     if (io) {
+//       // notify user
+//       if (order.user?.socketId) {
+//         io.to(order.user.socketId).emit("update-Status", {
+//           orderId: order._id,
+//           shopId: shopOrder.shop,
+//           status: "delivered",
+//           userId: order.user._id,
+//         });
+//       }
+
+//       // notify owner
+//       if (shopOrder.owner?.socketId) {
+//         io.to(shopOrder.owner.socketId).emit("update-Status", {
+//           orderId: order._id,
+//           shopId: shopOrder.shop,
+//           status: "delivered",
+//           userId: shopOrder.owner,
+//         });
+//       }
+//     }
+
+//     await DeliveryAssignment.deleteOne({
+//       shopOrderId: shopOrder._id,
+//       order: order._id,
+//       assignedTo: shopOrder.assignedDeliveryBoy,
+//     });
+
+//     return res.status(200).json({ message: "Order Delivered Successfully" });
+//   } catch (error) {
+//     return res
+//       .status(500)
+//       .json({ message: `verify delivery otp error ${error}` });
+//   }
+// };
+
 export const verifyOTP = async (req, res) => {
   try {
     const { orderId, shopOrderId, otp } = req.body;
-    const order = await Order.findById(orderId).populate("user");
-    const shopOrder = order.shopOrders.id(shopOrderId);
-    if (!order || !shopOrder) {
-      return res.status(400).json({ message: "Enter valid order/shopOrderid" });
+
+    if (!orderId || !shopOrderId || !otp) {
+      return res.status(400).json({ message: "Missing required fields" });
     }
+
+    const order = await Order.findById(orderId)
+      .populate("user", "socketId")
+      .populate("shopOrders.owner", "socketId");
+
+    if (!order) {
+      return res.status(404).json({ message: "Order not found" });
+    }
+
+    const shopOrder = order.shopOrders.id(shopOrderId);
+    if (!shopOrder) {
+      return res.status(404).json({ message: "Shop order not found" });
+    }
+
+    // 🔐 validate OTP
     if (
+      !shopOrder.deliveryOtp ||
       shopOrder.deliveryOtp !== otp ||
       !shopOrder.otpExpires ||
       shopOrder.otpExpires < Date.now()
     ) {
-      return res.status(400).json({ message: "Invalid/Expire OTP" });
+      return res.status(400).json({ message: "Invalid or expired OTP" });
     }
+
+    // ✅ mark delivered
     shopOrder.status = "delivered";
-    shopOrder.deliveredAt = Date.now();
+    shopOrder.deliveredAt = new Date();
+    shopOrder.deliveryOtp = null;
+    shopOrder.otpExpires = null;
+
     await order.save();
 
-    // 🔔 REAL-TIME UPDATE TO OWNER & USER
+    // 🔔 real-time socket updates
     const io = req.app.get("io");
 
     if (io) {
-      // notify user
       if (order.user?.socketId) {
         io.to(order.user.socketId).emit("update-Status", {
           orderId: order._id,
           shopId: shopOrder.shop,
           status: "delivered",
-          userId: order.user._id,
         });
       }
 
-      // notify owner
       if (shopOrder.owner?.socketId) {
         io.to(shopOrder.owner.socketId).emit("update-Status", {
           orderId: order._id,
           shopId: shopOrder.shop,
           status: "delivered",
-          userId: shopOrder.owner,
         });
       }
     }
 
+    // 🧹 cleanup assignment
     await DeliveryAssignment.deleteOne({
       shopOrderId: shopOrder._id,
       order: order._id,
       assignedTo: shopOrder.assignedDeliveryBoy,
     });
 
-    return res.status(200).json({ message: "Order Delivered Successfully" });
+    return res.status(200).json({
+      message: "Order delivered successfully",
+    });
   } catch (error) {
-    return res
-      .status(500)
-      .json({ message: `verify delivery otp error ${error}` });
+    console.error("Verify delivery OTP error:", error);
+    return res.status(500).json({
+      message: "Failed to verify delivery OTP",
+    });
   }
 };
 
@@ -651,3 +789,6 @@ export const getTodayDelivery = async (req, res) => {
     return res.status(500).json({ message: `today delivery error ${error}` });
   }
 };
+
+
+

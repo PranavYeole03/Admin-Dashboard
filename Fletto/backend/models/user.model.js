@@ -20,8 +20,12 @@ const userSchema = new mongoose.Schema(
     },
     role: {
       type: String,
-      enum: ["user", "owner", "deliveryBoy"],
+      enum: ["user", "owner", "deliveryBoy", "admin"],
       required: true,
+    },
+    isBlocked: {
+      type: Boolean,
+      default: false
     },
     resetOtp: {
       type: String,
