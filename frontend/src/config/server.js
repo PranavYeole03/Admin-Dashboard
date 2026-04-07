@@ -1,2 +1,2 @@
-export const serverURL = "http://localhost:8000";
+export const serverURL = "https://admin-dashboard-n6b6.onrender.com";
 
